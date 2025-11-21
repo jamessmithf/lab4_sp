@@ -1,13 +1,7 @@
 #include <iostream>
 #include <vector>
-#include <cmath> // Насправді ми його не будемо використовувати для "наївності"
-#include <chrono> // Для вимірювання часу
+#include <chrono>
 
-/**
- * @brief "Наївна" неоптимізована функція перевірки числа на простоту.
- * Вона перевіряє дільники аж до n/2, що надлишково і повільно.
- * Оптимізована версія перевіряла б до sqrt(n).
- */
 bool isPrime(long n) {
     if (n <= 1) return false;
 
@@ -26,7 +20,6 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    // Отримуємо 'n' з командного рядка
     long n_limit = 0;
     try {
         n_limit = std::stol(argv[1]);
@@ -38,7 +31,6 @@ int main(int argc, char* argv[]) {
     std::vector<long> primes;
     auto start = std::chrono::high_resolution_clock::now();
 
-    // Головний цикл, який ми будемо профілювати
     for (long i = 2; i <= n_limit; ++i) {
         if (isPrime(i)) {
             primes.push_back(i);
