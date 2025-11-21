@@ -1,0 +1,198 @@
+﻿<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Welcome file</title>
+  <link rel="stylesheet" href="https://stackedit.io/style.css" />
+</head>
+
+<body class="stackedit">
+  <div class="stackedit__html"><h1 id="лабораторна-робота-аналіз-продуктивності-та-оптимізація-avx">Лабораторна робота: Аналіз продуктивності та оптимізація (AVX)</h1>
+<p><strong>Виконав:</strong> Сікора Віктор - студент групи ТК-32<br>
+<strong>Середовище:</strong> Linux Mint (Kernel 6.14.0-29-generic)<br>
+<strong>Технічні характеристики:</strong> Intel Core i7 12650H &amp; 16GB RAM</p>
+<h2 id="мета-роботи">Мета роботи</h2>
+<p>Опанувати методи профілювання програм у середовищі Linux (<code>perf</code>, <code>FlameGraph</code>), проаналізувати ефективність виконання коду, споживання енергії та реалізувати низькорівневу оптимізацію з використанням векторних інструкцій (AVX2).</p>
+<hr>
+<h2 id="аналіз-неоптимізованої-програми-primes_naive">1. Аналіз неоптимізованої програми (<code>primes_naive</code>)</h2>
+<p>Програма реалізує наївний алгоритм пошуку простих чисел з часовою складністю <span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>O</mi><mo stretchy="false">(</mo><msup><mi>N</mi><mn>2</mn></msup><mo stretchy="false">)</mo></mrow><annotation encoding="application/x-tex">O(N^2)</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 1.06411em; vertical-align: -0.25em;"></span><span style="margin-right: 0.02778em;" class="mord mathnormal">O</span><span class="mopen">(</span><span class="mord"><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height: 0.814108em;"><span class="" style="top: -3.063em; margin-right: 0.05em;"><span class="pstrut" style="height: 2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">2</span></span></span></span></span></span></span></span><span class="mclose">)</span></span></span></span></span> (перевірка дільників до <span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mi mathvariant="normal">/</mi><mn>2</mn></mrow><annotation encoding="application/x-tex">N/2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 1em; vertical-align: -0.25em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mord">/2</span></span></span></span></span>). Вхідні дані: <span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>300</mn><mo separator="true">,</mo><mn>000</mn></mrow><annotation encoding="application/x-tex">N = 300,000</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mspace" style="margin-right: 0.277778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right: 0.277778em;"></span></span><span class="base"><span class="strut" style="height: 0.83888em; vertical-align: -0.19444em;"></span><span class="mord">300</span><span class="mpunct">,</span><span class="mspace" style="margin-right: 0.166667em;"></span><span class="mord">000</span></span></span></span></span>.</p>
+<h3 id="flamegraph-виконання-крок-1">1.1. FlameGraph виконання (Крок 1)</h3>
+<p><strong>Аналіз:</strong><br>
+Отриманий FlameGraph має чітко виражену структуру “вежі”.</p>
+<ul>
+<li><strong>Hotspot:</strong> Функція <code>isPrime</code> займає 99% ширини графіка, що свідчить про те, що майже весь час CPU витрачається саме в ній.</li>
+<li><strong>Стек:</strong> Видно, що функція <code>main</code> викликає <code>isPrime</code>. Відсутність вбудовування (inlining) при компіляції з <code>-O0</code> створює значні накладні витрати на виклик функції.</li>
+</ul>
+<h3 id="статистика-виконання-крок-2">1.2. Статистика виконання (Крок 2)</h3>
+<p><strong>Основні показники (<code>time</code> &amp; <code>perf</code>):</strong></p>
+<ul>
+<li><strong>Час виконання:</strong> <code>8.51 с</code></li>
+<li><strong>User Time:</strong> <code>8.51 с</code> (Програма є 100% CPU-bound).</li>
+<li><strong>System Time:</strong> <code>0.00 с</code> (Відсутність системних викликів).</li>
+<li><strong>Кількість інструкцій:</strong> <code>26.1 млрд</code>.</li>
+<li><strong>IPC (Instructions Per Cycle):</strong> <code>1.40</code>. Це середній показник, що вказує на те, що процесор часто очікує завершення повільних операцій (наприклад, ділення <code>idiv</code>).</li>
+<li><strong>L1 Cache:</strong> Висока інтенсивність завантажень (<code>9.3 млрд</code>), що підтверджує активне використання стеку замість регістрів.</li>
+</ul>
+<hr>
+<h2 id="аналіз-енерговитрат-крок-3">2. Аналіз енерговитрат (Крок 3)</h2>
+<p>Вимірювання проводилися за допомогою інструменту <code>perf</code> з використанням лічильників RAPL (<code>Running Average Power Limit</code>).</p>
+
+<table>
+<thead>
+<tr>
+<th align="left">Стан системи</th>
+<th align="left">Енергія (Package)</th>
+<th align="left">Час заміру</th>
+<th align="left">Середня потужність</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left"><strong>Idle (Спокій)</strong></td>
+<td align="left">26.25 Дж</td>
+<td align="left">10.00 с</td>
+<td align="left"><strong>2.63 Вт</strong></td>
+</tr>
+<tr>
+<td align="left"><strong>Load (Навантаження)</strong></td>
+<td align="left">59.30 Дж</td>
+<td align="left">8.51 с</td>
+<td align="left"><strong>6.97 Вт</strong></td>
+</tr>
+</tbody>
+</table><p><strong>Висновок:</strong><br>
+Виконання неоптимізованої програми збільшує енергоспоживання процесора у <strong>~2.7 рази</strong> порівняно зі станом спокою. Сумарні витрати енергії на задачу склали <strong>59.30 Дж</strong>.</p>
+<hr>
+<h2 id="оптимізація-та-порівняльний-аналіз-крок-4">3. Оптимізація та Порівняльний аналіз (Крок 4)</h2>
+<h3 id="суть-оптимізації">3.1. Суть оптимізації</h3>
+<p>Було застосовано два рівні оптимізації:</p>
+<ol>
+<li><strong>Алгоритмічна:</strong> Зменшення простору пошуку дільників з <span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mi mathvariant="normal">/</mi><mn>2</mn></mrow><annotation encoding="application/x-tex">N/2</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 1em; vertical-align: -0.25em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mord">/2</span></span></span></span></span> до <span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><msqrt><mi>N</mi></msqrt></mrow><annotation encoding="application/x-tex">\sqrt{N}</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 1.04em; vertical-align: -0.113335em;"></span><span class="mord sqrt"><span class="vlist-t vlist-t2"><span class="vlist-r"><span class="vlist" style="height: 0.926665em;"><span class="svg-align" style="top: -3em;"><span class="pstrut" style="height: 3em;"></span><span class="mord" style="padding-left: 0.833em;"><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span></span></span><span class="" style="top: -2.88667em;"><span class="pstrut" style="height: 3em;"></span><span class="hide-tail" style="min-width: 0.853em; height: 1.08em;"><svg width="400em" height="1.08em" viewBox="0 0 400000 1080" preserveAspectRatio="xMinYMin slice"><path d="M95,702
+c-2.7,0,-7.17,-2.7,-13.5,-8c-5.8,-5.3,-9.5,-10,-9.5,-14
+c0,-2,0.3,-3.3,1,-4c1.3,-2.7,23.83,-20.7,67.5,-54
+c44.2,-33.3,65.8,-50.3,66.5,-51c1.3,-1.3,3,-2,5,-2c4.7,0,8.7,3.3,12,10
+s173,378,173,378c0.7,0,35.3,-71,104,-213c68.7,-142,137.5,-285,206.5,-429
+c69,-144,104.5,-217.7,106.5,-221
+l0 -0
+c5.3,-9.3,12,-14,20,-14
+H400000v40H845.2724
+s-225.272,467,-225.272,467s-235,486,-235,486c-2.7,4.7,-9,7,-19,7
+c-6,0,-10,-1,-12,-3s-194,-422,-194,-422s-65,47,-65,47z
+M834 80h400000v40h-400000z"></path></svg></span></span></span><span class="vlist-s">​</span></span><span class="vlist-r"><span class="vlist" style="height: 0.113335em;"><span class=""></span></span></span></span></span></span></span></span></span>.</li>
+<li><strong>Апаратна (AVX2):</strong> Використання SIMD-інструкцій для паралельної перевірки 8 дільників за одну операцію.</li>
+</ol>
+<h3 id="порівняння-асемблерного-коду-крок-4.1">3.2. Порівняння Асемблерного коду (Крок 4.1)</h3>
+<ul>
+<li><strong>До оптимізації (<code>-O0</code>):</strong> Використовується інструкція <code>idivq</code> (цілочисельне ділення), яка є скалярною (обробляє одне число за раз) і має високу латентність (десятки тактів). Активно використовується стек для передачі змінних.</li>
+<li><strong>Після оптимізації (AVX):</strong> Код використовує 256-бітні регістри <code>%ymm</code>. Ключові інструкції:
+<ul>
+<li><code>vcvtdq2ps</code> — конвертація цілих чисел у float (пакетно).</li>
+<li><code>vdivps</code> — векторне ділення (8 чисел одночасно).</li>
+<li><code>vpmovmskb</code> — створення маски результатів для швидкої перевірки.</li>
+</ul>
+</li>
+</ul>
+<h3 id="зміни-на-flamegraph-крок-4.3">3.3. Зміни на FlameGraph (Крок 4.3)</h3>
+<p>FlameGraph для оптимізованої версії (побудований на збільшеному навантаженні <span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>10</mn><mo separator="true">,</mo><mn>000</mn><mo separator="true">,</mo><mn>000</mn></mrow><annotation encoding="application/x-tex">N=10,000,000</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mspace" style="margin-right: 0.277778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right: 0.277778em;"></span></span><span class="base"><span class="strut" style="height: 0.83888em; vertical-align: -0.19444em;"></span><span class="mord">10</span><span class="mpunct">,</span><span class="mspace" style="margin-right: 0.166667em;"></span><span class="mord">000</span><span class="mpunct">,</span><span class="mspace" style="margin-right: 0.166667em;"></span><span class="mord">000</span></span></span></span></span>) показує зміну профілю виконання. Хоча функція <code>isPrime_AVX</code> все ще присутня, щільність коду всередині неї змінилася: замість довгих затримок на діленні, виконуються швидкі векторні операції.</p>
+<h3 id="фінальна-таблиця-порівняння-крок-4.2-4.4">3.4. Фінальна таблиця порівняння (Крок 4.2, 4.4)</h3>
+<p><em>Примітка: Для коректного заміру енергії та профілювання оптимізована програма запускалася на обсязі даних у 33 рази більшому (<span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>1</mn><msup><mn>0</mn><mn>7</mn></msup></mrow><annotation encoding="application/x-tex">N=10^7</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mspace" style="margin-right: 0.277778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right: 0.277778em;"></span></span><span class="base"><span class="strut" style="height: 0.814108em; vertical-align: 0em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height: 0.814108em;"><span class="" style="top: -3.063em; margin-right: 0.05em;"><span class="pstrut" style="height: 2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">7</span></span></span></span></span></span></span></span></span></span></span></span>), ніж неоптимізована (<span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>3</mn><mo>⋅</mo><mn>1</mn><msup><mn>0</mn><mn>5</mn></msup></mrow><annotation encoding="application/x-tex">N=3\cdot10^5</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mspace" style="margin-right: 0.277778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right: 0.277778em;"></span></span><span class="base"><span class="strut" style="height: 0.64444em; vertical-align: 0em;"></span><span class="mord">3</span><span class="mspace" style="margin-right: 0.222222em;"></span><span class="mbin">⋅</span><span class="mspace" style="margin-right: 0.222222em;"></span></span><span class="base"><span class="strut" style="height: 0.814108em; vertical-align: 0em;"></span><span class="mord">1</span><span class="mord"><span class="mord">0</span><span class="msupsub"><span class="vlist-t"><span class="vlist-r"><span class="vlist" style="height: 0.814108em;"><span class="" style="top: -3.063em; margin-right: 0.05em;"><span class="pstrut" style="height: 2.7em;"></span><span class="sizing reset-size6 size3 mtight"><span class="mord mtight">5</span></span></span></span></span></span></span></span></span></span></span></span>).</em></p>
+
+<table>
+<thead>
+<tr>
+<th align="left">Параметр</th>
+<th align="left">Неоптимізована (<code>Naive</code>)</th>
+<th align="left">Оптимізована (<code>AVX</code>)</th>
+<th align="left">Ефективність</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td align="left"><strong>Вхідні дані (<span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi></mrow><annotation encoding="application/x-tex">N</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span></span></span></span></span>)</strong></td>
+<td align="left">300,000</td>
+<td align="left">300,000</td>
+<td align="left">-</td>
+</tr>
+<tr>
+<td align="left"><strong>Час виконання</strong></td>
+<td align="left"><strong>8.51 с</strong></td>
+<td align="left"><strong>0.015 с</strong></td>
+<td align="left"><strong>Швидше у ~560 разів</strong></td>
+</tr>
+<tr>
+<td align="left"></td>
+<td align="left"></td>
+<td align="left"></td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left"><strong>Дані навантаження</strong></td>
+<td align="left"><em><span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>300</mn><mi>k</mi></mrow><annotation encoding="application/x-tex">N=300k</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mspace" style="margin-right: 0.277778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right: 0.277778em;"></span></span><span class="base"><span class="strut" style="height: 0.69444em; vertical-align: 0em;"></span><span class="mord">300</span><span style="margin-right: 0.03148em;" class="mord mathnormal">k</span></span></span></span></span></em></td>
+<td align="left"><em><span class="katex--inline"><span class="katex"><span class="katex-mathml"><math xmlns="http://www.w3.org/1998/Math/MathML"><semantics><mrow><mi>N</mi><mo>=</mo><mn>10</mn><mi>M</mi></mrow><annotation encoding="application/x-tex">N=10M</annotation></semantics></math></span><span class="katex-html" aria-hidden="true"><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span style="margin-right: 0.10903em;" class="mord mathnormal">N</span><span class="mspace" style="margin-right: 0.277778em;"></span><span class="mrel">=</span><span class="mspace" style="margin-right: 0.277778em;"></span></span><span class="base"><span class="strut" style="height: 0.68333em; vertical-align: 0em;"></span><span class="mord">10</span><span style="margin-right: 0.10903em;" class="mord mathnormal">M</span></span></span></span></span> (33x)</em></td>
+<td align="left"><em>Аналіз ефективності</em></td>
+</tr>
+<tr>
+<td align="left"><strong>Інструкції</strong></td>
+<td align="left">26.1 млрд</td>
+<td align="left">3.96 млрд</td>
+<td align="left">Кардинальне зменшення</td>
+</tr>
+<tr>
+<td align="left"><strong>IPC (Інстр./такт)</strong></td>
+<td align="left">1.40</td>
+<td align="left"><strong>2.36</strong></td>
+<td align="left">Ефективність конвеєра +68%</td>
+</tr>
+<tr>
+<td align="left"><strong>Енергія (Package)</strong></td>
+<td align="left">59.30 Дж</td>
+<td align="left"><strong>6.13 Дж</strong></td>
+<td align="left"><strong>Менше у 9.7 разів</strong></td>
+</tr>
+<tr>
+<td align="left"><strong>Енергія на 1 число</strong></td>
+<td align="left">0.198 мДж</td>
+<td align="left">0.0006 мДж</td>
+<td align="left"><strong>Ефективніше у ~330 разів</strong></td>
+</tr>
+</tbody>
+</table><h3 id="загальний-висновок">Загальний висновок</h3>
+<p>Поєднання алгоритмічної оптимізації та використання SIMD-інструкцій (AVX2) дозволило скоротити час виконання задачі у 560 разів.<br>
+Експеримент підтвердив стратегію <strong>“Race-to-Sleep”</strong>: найбільш енергоефективним підходом є максимальне використання ресурсів процесора (навіть зі збільшенням миттєвої потужності до 7.8 Вт) для якнайшвидшого виконання задачі та переходу в режим сну.</p>
+<hr>
+<hr>
+<h1 id="додаток-журнал-використаних-команд">Додаток: Журнал використаних команд</h1>
+<p><strong>Крок 1: Побудова FlameGraph</strong></p>
+<ul>
+<li><code>g++ -O0 -g primes.cpp -o primes_naive</code> — компіляція без оптимізації;</li>
+<li><code>sudo perf record -F 99 -g ./primes_naive 300000</code> — запис профілю виконання;</li>
+<li><code>sudo perf script &gt; out.perf</code> — конвертація логу;</li>
+<li><code>FlameGraph/stackcollapse-perf.pl out.perf &gt; out.folded</code> — згортання стеків;</li>
+<li><code>FlameGraph/flamegraph.pl out.folded &gt; primes_naive.svg</code> — генерація SVG.</li>
+</ul>
+<p><strong>Крок 2: Збір статистики виконання</strong></p>
+<ul>
+<li><code>/usr/bin/time --verbose ./primes_naive 300000</code> — вимір часу та пам’яті;</li>
+<li><code>sudo perf stat -d ./primes_naive 300000</code> — збір детальної апаратної статистики;</li>
+<li><code>sudo perf report</code> — перегляд інтерактивного звіту.</li>
+</ul>
+<p><strong>Крок 3: Вимірювання енерговитрат</strong></p>
+<ul>
+<li><code>sudo perf list | grep 'power/energy'</code> — перевірка подій RAPL;</li>
+<li><code>sudo perf stat -a -e 'power/energy-pkg/' sleep 10</code> — замір базового споживання (Idle);</li>
+<li><code>sudo perf stat -e 'power/energy-pkg/' -e 'power/energy-cores/' ./primes_naive 300000</code> — замір енергії програми.</li>
+</ul>
+<p><strong>Крок 4: Порівняння з оптимізованою версією</strong></p>
+<ul>
+<li><code>g++ -O3 -g -march=native primes_optimized.cpp -o primes_avx</code> — компіляція з AVX2;</li>
+<li><code>./primes_avx 300000</code> — замір часу (швидкий тест);</li>
+<li><code>sudo perf stat -d ./primes_avx 10000000</code> — статистика під навантаженням;</li>
+<li><code>sudo perf stat -e 'power/energy-pkg/' -e 'power/energy-cores/' ./primes_avx 10000000</code> — енергія під навантаженням;</li>
+<li><code>sudo perf record -F 99 -g ./primes_avx 10000000</code> — профіль для FlameGraph.</li>
+</ul>
+</div>
+</body>
+
+</html>
